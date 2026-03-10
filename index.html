@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片文字识别 - OCR</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --success: #22c55e;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-header svg {
+            width: 20px;
+            height: 20px;
+            color: var(--primary);
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fafbfc;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: #f0f4ff;
+        }
+
+        .upload-area.dragover {
+            border-color: var(--primary);
+            background: #eef2ff;
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 1rem;
+            color: var(--text-secondary);
+        }
+
+        .upload-text {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-hint {
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        .url-input-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .url-input-group input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+
+        .url-input-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-primary:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #f1f5f9;
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        .btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .image-preview {
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .image-preview.active {
+            display: block;
+        }
+
+        .image-preview img {
+            max-width: 100%;
+            border-radius: 8px;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        .image-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .progress-container {
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), #8b5cf6);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .result-textarea {
+            width: 100%;
+            min-height: 400px;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            line-height: 1.8;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+
+        .result-textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .result-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .stats {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--text);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: var(--success);
+        }
+
+        .language-select {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .lang-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: white;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .lang-btn:hover {
+            border-color: var(--primary);
+        }
+
+        .lang-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>图片文字识别</h1>
+            <p class="subtitle">上传图片或输入网络图片地址，快速提取文字</p>
+        </header>
+
+        <div class="main-grid">
+            <div class="card">
+                <div class="card-header">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    图片输入
+                </div>
+                <div class="card-body">
+                    <div class="language-select">
+                        <button class="lang-btn active" data-lang="chi_sim">简体中文</button>
+                        <button class="lang-btn" data-lang="eng">English</button>
+                        <button class="lang-btn" data-lang="chi_tra">繁體中文</button>
+                        <button class="lang-btn" data-lang="jpn">日本語</button>
+                    </div>
+
+                    <div class="upload-area" id="uploadArea">
+                        <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <p class="upload-text">点击或拖拽图片到这里</p>
+                        <p class="upload-hint">支持 PNG、JPG、JPEG、BMP、WebP 格式</p>
+                    </div>
+                    <input type="file" id="fileInput" accept="image/*" hidden>
+
+                    <div class="url-input-group">
+                        <input type="text" id="urlInput" placeholder="或输入网络图片地址...">
+                        <button class="btn btn-secondary" id="loadUrlBtn">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            加载
+                        </button>
+                    </div>
+
+                    <div class="image-preview" id="imagePreview">
+                        <img id="previewImg" src="" alt="预览">
+                        <div class="image-actions">
+                            <button class="btn btn-primary" id="recognizeBtn" style="flex:1">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                开始识别
+                            </button>
+                            <button class="btn btn-secondary" id="clearBtn">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                                清除
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <p class="progress-text" id="progressText">正在初始化...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    识别结果
+                </div>
+                <div class="card-body">
+                    <div id="resultEmpty" class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <p>上传图片后点击识别按钮</p>
+                    </div>
+                    <textarea class="result-textarea" id="resultTextarea" placeholder="识别结果将显示在这里..."></textarea>
+                    <div class="stats" id="resultStats" style="display: none;">
+                        <div class="stat-item">
+                            <div class="stat-value" id="charCount">0</div>
+                            <div class="stat-label">字符数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="wordCount">0</div>
+                            <div class="stat-label">词数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="lineCount">0</div>
+                            <div class="stat-label">行数</div>
+                        </div>
+                    </div>
+                    <div class="result-actions">
+                        <button class="btn btn-primary" id="copyBtn">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                            复制
+                        </button>
+                        <button class="btn btn-primary" id="saveBtn">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            保存
+                        </button>
+                        <button class="btn btn-secondary" id="clearResultBtn">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                            清空
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const urlInput = document.getElementById('urlInput');
+        const loadUrlBtn = document.getElementById('loadUrlBtn');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg = document.getElementById('previewImg');
+        const recognizeBtn = document.getElementById('recognizeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const resultTextarea = document.getElementById('resultTextarea');
+        const resultEmpty = document.getElementById('resultEmpty');
+        const resultStats = document.getElementById('resultStats');
+        const charCount = document.getElementById('charCount');
+        const wordCount = document.getElementById('wordCount');
+        const lineCount = document.getElementById('lineCount');
+        const copyBtn = document.getElementById('copyBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const clearResultBtn = document.getElementById('clearResultBtn');
+        const toast = document.getElementById('toast');
+        const langBtns = document.querySelectorAll('.lang-btn');
+
+        let currentImage = null;
+        let selectedLang = 'chi_sim';
+
+        langBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                langBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                selectedLang = btn.dataset.lang;
+            });
+        });
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleFile(file);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        });
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentImage = e.target.result;
+                previewImg.src = currentImage;
+                imagePreview.classList.add('active');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        loadUrlBtn.addEventListener('click', async () => {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showToast('请输入图片地址', 'error');
+                return;
+            }
+            
+            currentImage = url;
+            previewImg.src = url;
+            previewImg.onload = () => {
+                imagePreview.classList.add('active');
+                showToast('图片加载成功', 'success');
+            };
+            previewImg.onerror = () => {
+                showToast('图片加载失败，请检查地址', 'error');
+                currentImage = null;
+            };
+        });
+
+        clearBtn.addEventListener('click', () => {
+            currentImage = null;
+            previewImg.src = '';
+            imagePreview.classList.remove('active');
+            fileInput.value = '';
+            urlInput.value = '';
+        });
+
+        let isRecognizing = false;
+
+        recognizeBtn.addEventListener('click', async () => {
+            if (!currentImage) {
+                showToast('请先上传图片', 'error');
+                return;
+            }
+
+            if (isRecognizing) return;
+            isRecognizing = true;
+            recognizeBtn.disabled = true;
+            progressContainer.classList.add('active');
+            progressFill.style.width = '0%';
+            progressText.textContent = '正在识别...';
+
+            const interval = setInterval(() => {
+                if (progressFill.style.width !== '100%') {
+                    const current = parseInt(progressFill.style.width) || 0;
+                    progressFill.style.width = Math.min(current + 10, 90) + '%';
+                }
+            }, 200);
+
+            try {
+                const isUrl = currentImage.startsWith('http');
+                const endpoint = isUrl ? '/ocr/url' : '/ocr';
+                
+                const requestBody = {
+                    url: isUrl ? currentImage : undefined,
+                    image: isUrl ? undefined : currentImage,
+                    lang: selectedLang
+                };
+                
+                console.log('Sending request, image size:', requestBody.image?.length || requestBody.url?.length);
+                
+                let response;
+                try {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                } catch (fetchError) {
+                    console.error('Fetch error:', fetchError);
+                    throw new Error('网络请求失败: ' + fetchError.message);
+                }
+
+                clearInterval(interval);
+
+                let result;
+                try {
+                    result = await response.json();
+                    console.log('OCR Result:', result);
+                } catch (e) {
+                    const text = await response.text();
+                    console.error('Response not JSON:', text);
+                    throw new Error('服务器响应错误: ' + response.status);
+                }
+
+                if (!response.ok) {
+                    throw new Error(result.error || '识别失败');
+                }
+
+                console.log('Setting result:', result.text);
+                resultTextarea.value = result.text || '';
+                resultTextarea.dispatchEvent(new Event('input'));
+                progressText.textContent = '识别完成！';
+                
+                setTimeout(() => {
+                    progressContainer.classList.remove('active');
+                }, 1000);
+
+                updateStats();
+                showToast('识别成功！', 'success');
+
+            } catch (error) {
+                clearInterval(interval);
+                console.error(error);
+                let msg = error.message;
+                if (msg.includes('Body is disturbed') || msg.includes('aborted')) {
+                    msg = '请求被取消，请重试';
+                }
+                showToast('识别失败: ' + msg, 'error');
+                progressContainer.classList.remove('active');
+            }
+
+            isRecognizing = false;
+            recognizeBtn.disabled = false;
+        });
+
+        resultTextarea.addEventListener('input', updateStats);
+
+        function updateStats() {
+            const text = resultTextarea.value;
+            if (!text.trim()) {
+                resultStats.style.display = 'none';
+                resultEmpty.style.display = 'block';
+                return;
+            }
+            resultEmpty.style.display = 'none';
+            resultStats.style.display = 'flex';
+            
+            charCount.textContent = text.length;
+            wordCount.textContent = text.split(/\s+/).filter(w => w).length;
+            lineCount.textContent = text.split('\n').length;
+        }
+
+        copyBtn.addEventListener('click', () => {
+            const text = resultTextarea.value;
+            if (!text) {
+                showToast('没有内容可复制', 'error');
+                return;
+            }
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('已复制到剪贴板', 'success');
+            });
+        });
+
+        saveBtn.addEventListener('click', () => {
+            const text = resultTextarea.value;
+            if (!text) {
+                showToast('没有内容可保存', 'error');
+                return;
+            }
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'ocr-result-' + Date.now() + '.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('文件已保存', 'success');
+        });
+
+        clearResultBtn.addEventListener('click', () => {
+            resultTextarea.value = '';
+            updateStats();
+        });
+
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = 'toast show' + (type === 'success' ? ' success' : '');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
