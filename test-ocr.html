@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>OCR 测试</title>
+    <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; }
+        input, button { padding: 10px; margin: 10px 5px; font-size: 16px; }
+        button { cursor: pointer; }
+        .result-box { background: #f5f5f5; padding: 15px; min-height: 100px; white-space: pre-wrap; border-radius: 5px; margin: 10px 0; }
+        #log { background: #2d2d2d; color: #0f0; padding: 15px; border-radius: 5px; font-size: 12px; max-height: 300px; overflow-y: auto; }
+        .mode-btn { margin: 5px; padding: 8px 15px; }
+        .mode-btn.active { background: #6366f1; color: white; }
+        img { max-width: 300px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>OCR 测试页面</h1>
+
+    <div>
+        <input type="file" id="fileInput" accept="image/*">
+        <button class="mode-btn active" data-mode="single">单次识别</button>
+        <button class="mode-btn" data-mode="multi">多模式对比</button>
+        <button id="recognizeBtn">开始识别</button>
+        <button onclick="useTestImage()">使用测试图片</button>
+    </div>
+
+    <div>
+        <img id="preview" style="display: none;">
+    </div>
+
+    <h3>识别结果：</h3>
+    <div id="result" class="result-box"></div>
+
+    <h3>日志：</h3>
+    <div id="log"></div>
+
+    <script>
+        const log = document.getElementById('log');
+        const result = document.getElementById('result');
+        const fileInput = document.getElementById('fileInput');
+        const recognizeBtn = document.getElementById('recognizeBtn');
+        const preview = document.getElementById('preview');
+        const modeBtns = document.querySelectorAll('.mode-btn');
+
+        let currentMode = 'single';
+        let currentImage = null;
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                modeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMode = btn.dataset.mode;
+            });
+        });
+
+        function addLog(msg) {
+            log.textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
+            log.scrollTop = log.scrollHeight;
+            console.log(msg);
+        }
+
+        function useTestImage() {
+            currentImage = 'https://img0.baidu.com/it/u=3197002195,3024915584&fm=253&fmt=auto&app=138&f=JPEG?w=800&h=1420';
+            preview.src = currentImage;
+            preview.style.display = 'block';
+            preview.crossOrigin = 'Anonymous';
+            addLog('已加载测试图片');
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    currentImage = e.target.result;
+                    preview.src = currentImage;
+                    preview.style.display = 'block';
+                    addLog('图片已加载，大小: ' + currentImage.length + ' bytes');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        recognizeBtn.addEventListener('click', async () => {
+            if (!currentImage) {
+                addLog('请先选择图片');
+                return;
+            }
+
+            recognizeBtn.disabled = true;
+            result.textContent = '识别中...';
+
+            try {
+                addLog('创建 worker...');
+                const worker = await Tesseract.createWorker('chi_sim', 1, {
+                    tessedit_pageseg_mode: '3'
+                });
+
+                if (currentMode === 'single') {
+                    addLog('单次识别...');
+                    const ret = await worker.recognize(currentImage);
+                    result.textContent = ret.data.text || '(无内容)';
+                    addLog('识别完成，字符数: ' + ret.data.text.length);
+
+                } else {
+                    // 多模式对比
+                    addLog('多模式对比识别...');
+                    const psmModes = ['3', '6', '12', '13'];
+                    const results = [];
+
+                    for (const psm of psmModes) {
+                        addLog(`尝试 PSM ${psm}...`);
+                        await worker.setParameters({
+                            tessedit_pageseg_mode: psm
+                        });
+                        const ret = await worker.recognize(currentImage);
+                        results.push({
+                            psm,
+                            text: ret.data.text,
+                            length: ret.data.text.length
+                        });
+                        addLog(`PSM ${psm}: ${ret.data.text.length} 字符`);
+                    }
+
+                    results.sort((a, b) => b.length - a.length);
+                    const best = results[0];
+
+                    result.textContent = `[最佳: PSM ${best.psm} - ${best.length} 字符]\n`;
+                    result.textContent += `对比: ${results.map(r => `PSM${r.psm}(${r.length})`).join(', ')}\n\n`;
+                    result.textContent += best.text;
+
+                    addLog('最佳模式: PSM ' + best.psm);
+                }
+
+                await worker.terminate();
+                addLog('完成');
+
+            } catch (error) {
+                addLog('错误: ' + error.message);
+                console.error(error);
+            }
+
+            recognizeBtn.disabled = false;
+        });
+
+        addLog('页面已加载，Tesseract: ' + (typeof Tesseract !== 'undefined' ? 'OK' : 'NOT LOADED'));
+    </script>
+</body>
+</html>

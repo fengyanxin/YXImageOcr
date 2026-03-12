@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片文字识别 - OCR</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
     <style>
         :root {
             --primary: #6366f1;
@@ -362,13 +363,23 @@
             margin-bottom: 1rem;
             opacity: 0.5;
         }
+
+        .init-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: #fef3c7;
+            color: #92400e;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>图片文字识别</h1>
-            <p class="subtitle">上传图片或输入网络图片地址，快速提取文字</p>
+            <p class="subtitle">上传图片或输入网络图片地址，快速提取文字 <span id="initStatus" class="init-badge">初始化中...</span></p>
         </header>
 
         <div class="main-grid">
@@ -490,6 +501,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // Tesseract.js 纯前端 OCR
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const urlInput = document.getElementById('urlInput');
@@ -512,15 +524,73 @@
         const clearResultBtn = document.getElementById('clearResultBtn');
         const toast = document.getElementById('toast');
         const langBtns = document.querySelectorAll('.lang-btn');
+        const initStatus = document.getElementById('initStatus');
 
         let currentImage = null;
         let selectedLang = 'chi_sim';
+        let worker = null;
+        let isInitialized = false;
+
+        // 初始化 Tesseract Worker
+        async function initWorker() {
+            if (isInitialized) return;
+            try {
+                console.log('开始初始化 Tesseract worker...');
+                // PSM 3: 自动分页模式，适合多种文本布局
+                // PSM 6: 单列文本块
+                worker = await Tesseract.createWorker(selectedLang, 1, {
+                    tessedit_pageseg_mode: '3',  // 自动分页（更准确）
+                    preserve_interword_spaces: '1',  // 保留词间空格
+                });
+                isInitialized = true;
+                initStatus.textContent = '就绪';
+                initStatus.style.background = '#d1fae5';
+                initStatus.style.color = '#065f46';
+                console.log('Tesseract worker 初始化完成');
+            } catch (error) {
+                console.error('初始化失败:', error);
+                initStatus.textContent = '初始化失败';
+                initStatus.style.background = '#fee2e2';
+                initStatus.style.color = '#991b1b';
+            }
+        }
+
+        // 切换语言时重新初始化
+        async function switchLanguage(lang) {
+            try {
+                if (worker) {
+                    await worker.terminate();
+                }
+                isInitialized = false;
+                initStatus.textContent = '加载语言包...';
+                initStatus.style.background = '#fef3c7';
+                initStatus.style.color = '#92400e';
+                console.log('切换语言到:', lang);
+                worker = await Tesseract.createWorker(lang, 1, {
+                    tessedit_pageseg_mode: '3',  // 自动分页
+                    preserve_interword_spaces: '1',
+                });
+                isInitialized = true;
+                initStatus.textContent = '就绪';
+                initStatus.style.background = '#d1fae5';
+                initStatus.style.color = '#065f46';
+                console.log('语言切换完成');
+            } catch (error) {
+                console.error('语言切换失败:', error);
+                initStatus.textContent = '加载失败';
+            }
+        }
+
+        // 页面加载时初始化
+        initWorker();
 
         langBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
+                if (btn.classList.contains('active')) return;
                 langBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 selectedLang = btn.dataset.lang;
+                await switchLanguage(selectedLang);
             });
         });
 
@@ -567,7 +637,7 @@
                 showToast('请输入图片地址', 'error');
                 return;
             }
-            
+
             currentImage = url;
             previewImg.src = url;
             previewImg.onload = () => {
@@ -588,11 +658,101 @@
             urlInput.value = '';
         });
 
+        // ==================== 图像预处理函数 ====================
+
+        // 图像预处理 - 提高识别准确率
+        async function preprocessImage(imageSrc) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    let width = img.width;
+                    let height = img.height;
+
+                    // 如果图片太大，缩放（提高速度和准确率）
+                    const maxSize = 3000;
+                    if (width > maxSize || height > maxSize) {
+                        const scale = maxSize / Math.max(width, height);
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
+                    }
+
+                    // 如果图片太小，放大
+                    const minSize = 800;
+                    if (width < minSize || height < minSize) {
+                        const scale = minSize / Math.min(width, height);
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    // 绘制原始图片
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // 获取图像数据
+                    let imageData = ctx.getImageData(0, 0, width, height);
+                    let data = imageData.data;
+
+                    // 转换为灰度图
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        data[i] = gray;
+                        data[i + 1] = gray;
+                        data[i + 2] = gray;
+                    }
+
+                    // 增强对比度
+                    const contrast = 30; // 对比度值
+                    const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                    for (let i = 0; i < data.length; i += 4) {
+                        let gray = data[i];
+                        gray = factor * (gray - 128) + 128;
+                        gray = Math.max(0, Math.min(255, gray));
+                        data[i] = gray;
+                        data[i + 1] = gray;
+                        data[i + 2] = gray;
+                    }
+
+                    // 二值化处理（提高文字清晰度）
+                    const threshold = 140;
+                    for (let i = 0; i < data.length; i += 4) {
+                        let gray = data[i];
+                        const binary = gray >= threshold ? 255 : 0;
+                        data[i] = binary;
+                        data[i + 1] = binary;
+                        data[i + 2] = binary;
+                    }
+
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // 转换为 base64
+                    const processedSrc = canvas.toDataURL('image/png');
+                    resolve(processedSrc);
+                };
+                img.onerror = () => {
+                    resolve(imageSrc); // 失败则返回原图
+                };
+                img.src = imageSrc;
+            });
+        }
+
         let isRecognizing = false;
 
         recognizeBtn.addEventListener('click', async () => {
             if (!currentImage) {
                 showToast('请先上传图片', 'error');
+                return;
+            }
+
+            // 检查 worker 是否已初始化
+            if (!worker || !isInitialized) {
+                showToast('OCR 引擎未就绪，请等待初始化完成', 'error');
+                console.log('Worker 状态:', { worker: !!worker, isInitialized });
                 return;
             }
 
@@ -603,73 +763,63 @@
             progressFill.style.width = '0%';
             progressText.textContent = '正在识别...';
 
-            const interval = setInterval(() => {
-                if (progressFill.style.width !== '100%') {
-                    const current = parseInt(progressFill.style.width) || 0;
-                    progressFill.style.width = Math.min(current + 10, 90) + '%';
-                }
-            }, 200);
+            // 模拟进度动画
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 90) progress = 90;
+                progressFill.style.width = progress + '%';
+            }, 500);
 
             try {
-                const isUrl = currentImage.startsWith('http');
-                const endpoint = isUrl ? '/ocr/url' : '/ocr';
-                
-                const requestBody = {
-                    url: isUrl ? currentImage : undefined,
-                    image: isUrl ? undefined : currentImage,
-                    lang: selectedLang
-                };
-                
-                console.log('Sending request, image size:', requestBody.image?.length || requestBody.url?.length);
-                
-                let response;
-                try {
-                    response = await fetch(endpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(requestBody)
+                console.log('开始识别图片...');
+
+                // 自动使用最佳设置：多模式 + 图像增强
+                const psmModes = ['3', '6', '12', '13'];  // 自动、单列、稀疏文本、单行
+                const results = [];
+
+                // 先对图像进行增强
+                progressText.textContent = '图像增强中...';
+                const enhancedImage = await preprocessImage(currentImage);
+                console.log('图像预处理完成');
+
+                // 尝试多种 PSM 模式，选择最佳结果
+                for (const psm of psmModes) {
+                    progressText.textContent = `识别中... (${psmModes.indexOf(psm) + 1}/${psmModes.length})`;
+                    console.log(`尝试 PSM ${psm}...`);
+
+                    await worker.setParameters({
+                        tessedit_pageseg_mode: psm
                     });
-                } catch (fetchError) {
-                    console.error('Fetch error:', fetchError);
-                    throw new Error('网络请求失败: ' + fetchError.message);
+
+                    const result = await worker.recognize(enhancedImage);
+                    const text = result.data.text.trim();
+                    results.push({ psm, text, length: text.length });
+
+                    console.log(`PSM ${psm}: ${text.length} 字符`);
                 }
 
-                clearInterval(interval);
+                // 选择结果最长的（通常最准确）
+                results.sort((a, b) => b.length - a.length);
+                const best = results[0];
 
-                let result;
-                try {
-                    result = await response.json();
-                    console.log('OCR Result:', result);
-                } catch (e) {
-                    const text = await response.text();
-                    console.error('Response not JSON:', text);
-                    throw new Error('服务器响应错误: ' + response.status);
-                }
-
-                if (!response.ok) {
-                    throw new Error(result.error || '识别失败');
-                }
-
-                console.log('Setting result:', result.text);
-                resultTextarea.value = result.text || '';
+                clearInterval(progressInterval);
+                resultTextarea.value = best.text;
                 resultTextarea.dispatchEvent(new Event('input'));
                 progressText.textContent = '识别完成！';
-                
+                progressFill.style.width = '100%';
+
                 setTimeout(() => {
                     progressContainer.classList.remove('active');
                 }, 1000);
 
                 updateStats();
-                showToast('识别成功！', 'success');
+                showToast(`识别成功！使用模式 PSM-${best.psm}，识别到 ${best.length} 个字符`, 'success');
 
             } catch (error) {
-                clearInterval(interval);
-                console.error(error);
-                let msg = error.message;
-                if (msg.includes('Body is disturbed') || msg.includes('aborted')) {
-                    msg = '请求被取消，请重试';
-                }
-                showToast('识别失败: ' + msg, 'error');
+                clearInterval(progressInterval);
+                console.error('识别失败，详细错误:', error);
+                showToast('识别失败: ' + error.message, 'error');
                 progressContainer.classList.remove('active');
             }
 
@@ -688,7 +838,7 @@
             }
             resultEmpty.style.display = 'none';
             resultStats.style.display = 'flex';
-            
+
             charCount.textContent = text.length;
             wordCount.textContent = text.split(/\s+/).filter(w => w).length;
             lineCount.textContent = text.split('\n').length;
