@@ -741,6 +741,93 @@
             });
         }
 
+        // ==================== 高级图像预处理 ====================
+
+        // 更强的图像预处理 - 提高识别准确率
+        async function preprocessImageAdvanced(imageSrc) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    let width = img.width;
+                    let height = img.height;
+
+                    // 智能缩放 - 提高文字清晰度
+                    const maxSize = 3000;
+                    const minSize = 1000;
+
+                    if (width > maxSize || height > maxSize) {
+                        const scale = maxSize / Math.max(width, height);
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
+                    } else if (width < minSize || height < minSize) {
+                        const scale = minSize / Math.min(width, height);
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    // 高质量缩放
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    let imageData = ctx.getImageData(0, 0, width, height);
+                    let data = imageData.data;
+
+                    // 计算图像平均亮度，自动判断背景
+                    let totalBrightness = 0;
+                    let pixelCount = 0;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        totalBrightness += gray;
+                        pixelCount++;
+                    }
+                    const avgBrightness = totalBrightness / pixelCount;
+                    const isDarkBackground = avgBrightness < 128;
+
+                    // 动态参数
+                    const threshold = isDarkBackground ? 100 : 150;
+                    const targetBrightness = isDarkBackground ? 200 : 55;
+
+                    // 处理每个像素
+                    for (let i = 0; i < data.length; i += 4) {
+                        // 转灰度
+                        let gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+
+                        if (isDarkBackground) {
+                            // 深色背景：反转并增强
+                            gray = 255 - gray;
+                        }
+
+                        // 增强对比度（自适应）
+                        const contrast = 50;
+                        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+                        gray = factor * (gray - 128) + 128;
+                        gray = Math.max(0, Math.min(255, gray));
+
+                        // 自适应二值化
+                        const binary = gray >= threshold ? 255 : 0;
+
+                        data[i] = binary;
+                        data[i + 1] = binary;
+                        data[i + 2] = binary;
+                    }
+
+                    ctx.putImageData(imageData, 0, 0);
+                    const processedSrc = canvas.toDataURL('image/png');
+                    resolve(processedSrc);
+                };
+                img.onerror = () => resolve(imageSrc);
+                img.src = imageSrc;
+            });
+        }
+
         let isRecognizing = false;
 
         recognizeBtn.addEventListener('click', async () => {
@@ -774,33 +861,65 @@
             try {
                 console.log('开始识别图片...');
 
-                // 自动使用最佳设置：多模式 + 图像增强
-                const psmModes = ['3', '6', '12', '13'];  // 自动、单列、稀疏文本、单行
+                // 自动使用最佳设置：多模式 + 高级图像增强
+                // PSM 模式说明：
+                // 1 = 自动页面分割（OSD）
+                // 3 = 自动分页（推荐）
+                // 6 = 单列文本块
+                // 11 = 稀疏文本
+                // 12 = 稀疏文本+OSD
+                // 13 = 单行文本
+                const psmModes = ['3', '6', '1', '11', '13'];
                 const results = [];
 
-                // 先对图像进行增强
+                // 高级图像预处理
                 progressText.textContent = '图像增强中...';
-                const enhancedImage = await preprocessImage(currentImage);
+                const enhancedImage = await preprocessImageAdvanced(currentImage);
                 console.log('图像预处理完成');
 
-                // 尝试多种 PSM 模式，选择最佳结果
-                for (const psm of psmModes) {
-                    progressText.textContent = `识别中... (${psmModes.indexOf(psm) + 1}/${psmModes.length})`;
-                    console.log(`尝试 PSM ${psm}...`);
+                // 同时尝试原图和增强图
+                const images = [
+                    { name: '原图', src: currentImage },
+                    { name: '增强图', src: enhancedImage }
+                ];
 
-                    await worker.setParameters({
-                        tessedit_pageseg_mode: psm
-                    });
+                for (const imgInfo of images) {
+                    for (const psm of psmModes) {
+                        progressText.textContent = `识别中... (${imgInfo.name} PSM-${psm})`;
+                        console.log(`尝试 ${imgInfo.name} PSM ${psm}...`);
 
-                    const result = await worker.recognize(enhancedImage);
-                    const text = result.data.text.trim();
-                    results.push({ psm, text, length: text.length });
+                        await worker.setParameters({
+                            tessedit_pageseg_mode: psm
+                        });
 
-                    console.log(`PSM ${psm}: ${text.length} 字符`);
+                        const result = await worker.recognize(imgInfo.src);
+                        const text = result.data.text.trim();
+
+                        results.push({
+                            image: imgInfo.name,
+                            psm,
+                            text,
+                            length: text.length,
+                            confidence: result.data.confidence || 0
+                        });
+
+                        console.log(`${imgInfo.name} PSM ${psm}: ${text.length} 字符, 置信度: ${result.data.confidence || 'N/A'}`);
+                    }
                 }
 
-                // 选择结果最长的（通常最准确）
-                results.sort((a, b) => b.length - a.length);
+                // 智能选择最佳结果：综合考虑长度和置信度
+                results.sort((a, b) => {
+                    // 优先选择长度更长的（通常识别出更多内容）
+                    if (b.length !== a.length) {
+                        return b.length - a.length;
+                    }
+                    // 长度相同时，选择增强图的结果
+                    if (a.image !== b.image) {
+                        return a.image === '增强图' ? -1 : 1;
+                    }
+                    return b.confidence - a.confidence;
+                });
+
                 const best = results[0];
 
                 clearInterval(progressInterval);
@@ -814,7 +933,7 @@
                 }, 1000);
 
                 updateStats();
-                showToast(`识别成功！使用模式 PSM-${best.psm}，识别到 ${best.length} 个字符`, 'success');
+                showToast(`识别成功！${best.image} PSM-${best.psm}，${best.length} 个字符`, 'success');
 
             } catch (error) {
                 clearInterval(progressInterval);
